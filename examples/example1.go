@@ -30,7 +30,7 @@ func main() {
 	// Uncomment next line to supress verbose output
 	// logger.ChangePackageLogLevel("bsbmp", logger.InfoLevel)
 
-	b, err := sensor.ReadFirmware(i2c)
+	b, err := sensor.ReadFirmwareVersion(i2c)
 	if err != nil {
 		lg.Fatal(err)
 	}
