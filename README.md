@@ -6,7 +6,10 @@ Silicon Labs Si7021 relative humidity and temperature sensor
 [![GoDoc](https://godoc.org/github.com/d2r2/go-si7021?status.svg)](https://godoc.org/github.com/d2r2/go-si7021)
 [![MIT License](http://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Si7021 ([pdf reference](https://raw.github.com/d2r2/go-si7021/master/docs/Si7021-A20.pdf)) high accuracy temperature and relative humidity sensor. Easily integrated with Arduino and Raspberry PI due to i2c communication interface. Sensor have extra feature - integrated heater which could be helpfull in some specific application (such as periodic condensate removal, for example).
+Si7021 ([pdf reference](https://raw.github.com/d2r2/go-si7021/master/docs/Si7021-A20.pdf)) high accuracy temperature and relative humidity sensor. Easily integrated with Arduino and Raspberry PI due to i2c communication interface:
+![image](https://raw.github.com/d2r2/go-si7021/master/docs/Si7021_GY-21.jpg)
+
+This sensor has extra feature - integrated heater which could be helpfull in some specific application (such as periodic condensate removal, for example).
 
 Here is a library written in [Go programming language](https://golang.org/) for Raspberry PI and counterparts, which gives you in the output relative humidity and temperature values (making all necessary i2c-bus interracting and values computing).
 
