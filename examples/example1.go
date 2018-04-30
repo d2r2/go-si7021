@@ -12,6 +12,7 @@ var lg = logger.NewPackageLogger("main",
 )
 
 func main() {
+	defer logger.FinalizeLogger()
 	// Create new connection to i2c-bus on 1 line with address 0x40.
 	// Use i2cdetect utility to find device address over the i2c-bus
 	i2c, err := i2c.NewI2C(0x40, 1)
@@ -20,7 +21,7 @@ func main() {
 	}
 	defer i2c.Close()
 
-	// Uncomment next lines to supress verbose output
+	// Uncomment/comment next line to suppress/increase verbosity of output
 	//logger.ChangePackageLogLevel("i2c", logger.InfoLevel)
 	//logger.ChangePackageLogLevel("si7021", logger.InfoLevel)
 
@@ -71,11 +72,11 @@ func main() {
 	}
 	lg.Infof("Revision = %v", b)
 
-	buf1, err := sensor.ReadSerialNumber(i2c)
+	sn, err := sensor.ReadSerialNumber(i2c)
 	if err != nil {
 		lg.Fatal(err)
 	}
-	lg.Infof("Serial number = %v", buf1)
+	lg.Infof("Serial number = %v", sn)
 
 	st, err := sensor.ReadSensoreType(i2c)
 	if err != nil {
@@ -99,7 +100,7 @@ func main() {
 	if err != nil {
 		lg.Fatal(err)
 	}
-	lg.Infof("Temprature in celsius = %vC", t)
+	lg.Infof("Temprature in celsius = %v*C", t)
 
 	err = sensor.Reset(i2c)
 	if err != nil {

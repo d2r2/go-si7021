@@ -1,10 +1,13 @@
 package si7021
 
 import (
-	"math"
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"time"
 
 	i2c "github.com/d2r2/go-i2c"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // Command byte's sequences
@@ -192,20 +195,39 @@ func (v *Si7021) ReadFirmwareVersion(i2c *i2c.I2C) (FirmwareVersion, error) {
 		return 0, err
 	}
 	fv := (FirmwareVersion)(buf2[0])
-	lg.Debugf("Firmware version = %[1]s (%[1]d)", fv)
-
 	return fv, nil
 }
 
-// ReadSerialNumber read sensor serial number
-// which consists of byte array.
-func (v *Si7021) ReadSerialNumber(i2c *i2c.I2C) ([]byte, error) {
-	buf2 := make([]byte, 8)
+// Keeps sensor serial number raw bytes
+// including CRC info.
+type SerialNumberRaw struct {
+	SNA3     byte
+	CRC_SNA3 byte
+	SNA2     byte
+	CRC_SNA2 byte
+	SNA1     byte
+	CRC_SNA1 byte
+	SNA0     byte
+	CRC_SNA0 byte
+	SNB3     byte
+	SNB2     byte
+	CRC_SNB2 byte
+	SNB1     byte
+	SNB0     byte
+	CRC_SNB0 byte
+}
+
+// ReadSerialNumberRaw read sensor serial number to the struct.
+func (v *Si7021) ReadSerialNumberRaw(i2c *i2c.I2C) (*SerialNumberRaw, error) {
+	lg.Debug("Reading sensor serial number...")
+	const bytesCount1stRead = 8
+	const bytesCount2ndRead = 6
+	buf2 := make([]byte, bytesCount1stRead+bytesCount2ndRead)
 	_, err := i2c.WriteBytes(CMD_READ_ID_1ST_PART)
 	if err != nil {
 		return nil, err
 	}
-	buf1 := make([]byte, 4)
+	buf1 := make([]byte, bytesCount1stRead)
 	_, err = i2c.ReadBytes(buf1)
 	if err != nil {
 		return nil, err
@@ -215,26 +237,63 @@ func (v *Si7021) ReadSerialNumber(i2c *i2c.I2C) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	buf1 = make([]byte, 4)
+	buf1 = make([]byte, bytesCount2ndRead)
 	_, err = i2c.ReadBytes(buf1)
 	if err != nil {
 		return nil, err
 	}
 	buf2 = append(buf2, buf1[0:]...)
 
-	return buf2, nil
+	buf := bytes.NewBuffer(buf2)
+	sn := &SerialNumberRaw{}
+	err = binary.Read(buf, binary.BigEndian, sn)
+	if err != nil {
+		return nil, err
+	}
+	lg.Debugf("Raw serial number = %v", sn)
 
+	return sn, nil
+}
+
+// ReadSerialNumberRaw read sensor serial number to the struct.
+func (v *Si7021) ReadSerialNumber(i2c *i2c.I2C) (int64, error) {
+	sn, err := v.ReadSerialNumberRaw(i2c)
+	if err != nil {
+		return 0, err
+	}
+	crcSna3 := calcCRC_SI7021(0x0, []byte{sn.SNA3})
+	crcSna2 := calcCRC_SI7021(crcSna3, []byte{sn.SNA2})
+	crcSna1 := calcCRC_SI7021(crcSna2, []byte{sn.SNA1})
+	crcSna0 := calcCRC_SI7021(crcSna1, []byte{sn.SNA0})
+	crcSnb2 := calcCRC_SI7021(0x0, []byte{sn.SNB3, sn.SNB2})
+	crcSnb0 := calcCRC_SI7021(crcSnb2, []byte{sn.SNB1, sn.SNB0})
+	if crcSna3 != sn.CRC_SNA3 ||
+		crcSna2 != sn.CRC_SNA2 ||
+		crcSna1 != sn.CRC_SNA1 ||
+		crcSna0 != sn.CRC_SNA0 ||
+		crcSnb2 != sn.CRC_SNB2 ||
+		crcSnb0 != sn.CRC_SNB0 {
+		err := errors.New(spew.Sprintf(
+			"Some CRCs equalities are not valid: %v = %v, %v = %v,"+
+				"%v = %v, %v = %v, %v = %v, %v = %v",
+			sn.CRC_SNA3, crcSna3, sn.CRC_SNA2, crcSna2,
+			sn.CRC_SNA1, crcSna1, sn.CRC_SNA0, crcSna0,
+			sn.CRC_SNB2, crcSnb2, sn.CRC_SNB0, crcSnb0))
+		return 0, err
+	}
+	sn2 := int64(sn.SNA3)<<56 + int64(sn.SNA2)<<48 + int64(sn.SNA1)<<40 +
+		int64(sn.SNA0)<<32 + int64(sn.SNB3)<<24 + int64(sn.SNB2)<<16 +
+		int64(sn.SNB1)<<8 + int64(sn.SNB0)
+	return sn2, nil
 }
 
 // ReadSensorType return sensor model.
 func (v *Si7021) ReadSensoreType(i2c *i2c.I2C) (SensorType, error) {
-	buf, err := v.ReadSerialNumber(i2c)
+	sn, err := v.ReadSerialNumberRaw(i2c)
 	if err != nil {
 		return 0, err
 	}
-	st := (SensorType)(buf[4])
-	lg.Debugf("Sensor type = %[1]s (%[1]d)", st)
-
+	st := (SensorType)(sn.SNB3)
 	return st, nil
 }
 
@@ -257,6 +316,7 @@ func (v *Si7021) readUserReg(i2c *i2c.I2C) (byte, error) {
 // SetMeasureResolution set up sensor
 // temprature and humidity measure accuracy.
 func (v *Si7021) SetMeasureResolution(i2c *i2c.I2C, res MeasureResolution) error {
+	lg.Debug("Setting measure resolution...")
 	ur, err := v.readUserReg(i2c)
 	if err != nil {
 		return err
@@ -279,6 +339,7 @@ func (v *Si7021) GetMeasureResolution(i2c *i2c.I2C) (MeasureResolution, error) {
 
 // SetHeaterStatus enable of disable internal heater.
 func (v *Si7021) SetHeaterStatus(i2c *i2c.I2C, heat HeaterStatus) error {
+	lg.Debug("Setting heater on/off...")
 	ur, err := v.readUserReg(i2c)
 	if err != nil {
 		return err
@@ -314,6 +375,7 @@ func (v *Si7021) GetVoltageStatus(i2c *i2c.I2C) (VoltageStatus, error) {
 // temprature provided by sensor is not correspond
 // to real ambient temprature.
 func (v *Si7021) SetHeaterLevel(i2c *i2c.I2C, level HeaterLevel) error {
+	lg.Debug("Setting heater level...")
 	var hcr byte
 	hcr = (byte)(level)
 	_, err := i2c.WriteBytes(append(CMD_WRITE_HEATER_REG, hcr))
@@ -334,8 +396,9 @@ func (v *Si7021) GetHeaterLevel(i2c *i2c.I2C) (HeaterLevel, error) {
 	return (HeaterLevel)(buf1[0]) & HEATER_LEVEL_MASK, nil
 }
 
-// Reset reboot sensor.
+// Reset reboot a sensor.
 func (v *Si7021) Reset(i2c *i2c.I2C) error {
+	lg.Debug("Reset sensor...")
 	_, err := i2c.WriteBytes([]byte{0xFE})
 	if err != nil {
 		return err
@@ -350,63 +413,91 @@ func (v *Si7021) doMeasure(i2c *i2c.I2C, cmd []byte, withCRC bool) (uint16, byte
 	if err != nil {
 		return 0, 0, err
 	}
+	const dataBytesCount = 2
+	const crcBytesCount = 1
 	// Wait according to conversion time specification
 	time.Sleep(time.Millisecond * (12 + 11))
-	buf1 := make([]byte, 2)
-	_, err = i2c.ReadBytes(buf1)
+	var buf []byte
+	if withCRC {
+		buf = make([]byte, dataBytesCount+crcBytesCount)
+	} else {
+		buf = make([]byte, dataBytesCount)
+	}
+	_, err = i2c.ReadBytes(buf)
 	if err != nil {
 		return 0, 0, err
 	}
 	var crc byte
 	if withCRC {
-		buf2 := make([]byte, 1)
-		_, err = i2c.ReadBytes(buf2)
-		if err != nil {
+		crc = buf[dataBytesCount]
+		calcCrc := calcCRC_SI7021(0x0, buf[0:dataBytesCount])
+		if crc != calcCrc {
+			err := errors.New(spew.Sprintf(
+				"CRCs doesn't match: CRC from sensor(%v) != calculated CRC(%v)",
+				crc, calcCrc))
 			return 0, 0, err
+		} else {
+			lg.Debugf("CRCs verified: CRC from sensor(%v) = calculated CRC(%v)",
+				crc, calcCrc)
 		}
-		crc = buf2[0]
 	}
-	meas := uint16(buf1[0])<<8 | uint16(buf1[1])
+	meas := getU16BE(buf[0:dataBytesCount])
 	return meas, crc, nil
 }
 
 // ReadUncompRelativeHumidityMode1 returns
-// uncompensated humidity and CRC-8-Dallas/Maxim
+// uncompensated humidity and CRC
 // obtained with "Hold Master Mode" command.
 func (v *Si7021) ReadUncompRelativeHumidityMode1(i2c *i2c.I2C) (uint16, byte, error) {
+	lg.Debug("Reading humidity (mode 1)...")
 	rh, crc, err := v.doMeasure(i2c, CMD_REL_HUM_MASTER_MODE, true)
 	return rh, crc, err
 }
 
 // ReadUncompRelativeHumidityMode2 returns
-// uncompensated humidity and CRC-8-Dallas/Maxim
+// uncompensated humidity and CRC
 // obtained with "No Hold Master Mode" command.
 func (v *Si7021) ReadUncompRelativeHumidityMode2(i2c *i2c.I2C) (uint16, byte, error) {
+	lg.Debug("Reading humidity (mode 2)...")
 	rh, crc, err := v.doMeasure(i2c, CMD_REL_HUM_NO_MASTER_MODE, true)
 	return rh, crc, err
 }
 
 // ReadUncompTemperatureMode1 returns
-// uncompensated temperature and CRC-8-Dallas/Maxim
+// uncompensated temperature and CRC
 // obtained with "Hold Master Mode" command.
 func (v *Si7021) ReadUncompTempratureMode1(i2c *i2c.I2C) (uint16, byte, error) {
+	lg.Debug("Reading temprature (mode 1)...")
 	temp, crc, err := v.doMeasure(i2c, CMD_TEMPRATURE_MASTER_MODE, true)
 	return temp, crc, err
 }
 
 // ReadUncompTemperatureMode2 returns
-// uncompensated termperature and CRC-8-Dallas/Maxim
+// uncompensated termperature and CRC
 // obtained with "No Hold Master Mode" command.
 func (v *Si7021) ReadUncompTempratureMode2(i2c *i2c.I2C) (uint16, byte, error) {
+	lg.Debug("Reading temprature (mode 2)...")
 	temp, crc, err := v.doMeasure(i2c, CMD_TEMPRATURE_NO_MASTER_MODE, true)
 	return temp, crc, err
 }
 
+func (v *Si7021) uncompHumidityToRelativeHumidity(uh uint16) float32 {
+	rh := float32(uh)*125/65536 - 6
+	rh2 := round32(rh, 2)
+	return rh2
+}
+
+func (v *Si7021) uncompTemperatureToCelsius(ut uint16) float32 {
+	temp := float32(ut)*175.72/65536 - 46.85
+	temp2 := round32(temp, 2)
+	return temp2
+}
+
 // ReadUncompRelativeHumidityAndTemperatureMode1 returns
-// uncompensated humidity/temperature and CRC-8-Dallas/Maxim
+// uncompensated humidity/temperature and CRC
 // obtained with "Hold Master Mode" command.
 func (v *Si7021) ReadUncompRelativeHumidityAndTempratureMode1(i2c *i2c.I2C) (uint16, uint16, error) {
-	rh, _, err := v.doMeasure(i2c, CMD_REL_HUM_MASTER_MODE, false)
+	rh, _, err := v.doMeasure(i2c, CMD_REL_HUM_MASTER_MODE, true)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -418,10 +509,10 @@ func (v *Si7021) ReadUncompRelativeHumidityAndTempratureMode1(i2c *i2c.I2C) (uin
 }
 
 // ReadUncompRelativeHumidityAndTemperatureMode2 returns
-// uncompensated humidity/termperature and CRC-8-Dallas/Maxim
+// uncompensated humidity/termperature and CRC
 // obtained with "No Hold Master Mode" command.
 func (v *Si7021) ReadUncompRelativeHumidityAndTempratureMode2(i2c *i2c.I2C) (uint16, uint16, error) {
-	rh, _, err := v.doMeasure(i2c, CMD_REL_HUM_NO_MASTER_MODE, false)
+	rh, _, err := v.doMeasure(i2c, CMD_REL_HUM_NO_MASTER_MODE, true)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -434,86 +525,76 @@ func (v *Si7021) ReadUncompRelativeHumidityAndTempratureMode2(i2c *i2c.I2C) (uin
 
 // ReadRelativeHumidityMode1 return humidity in percents
 // obtained with "Hold Master Mode" command.
-// TODO: implement CRC generator polynomial of x 8 + x 5 + x 4 + 1 checkup
-func (v *Si7021) ReadRelativeHumidityMode1(i2c *i2c.I2C) (int, error) {
-	urh, crc, err := v.ReadUncompRelativeHumidityMode1(i2c)
+func (v *Si7021) ReadRelativeHumidityMode1(i2c *i2c.I2C) (float32, error) {
+	urh, _, err := v.ReadUncompRelativeHumidityMode1(i2c)
 	if err != nil {
 		return 0, nil
 	}
-	lg.Debugf("RH uncompensated = %v, CRC = %v", urh, crc)
-	rh := int(int64(urh)*125/65536) - 6
+	lg.Debugf("RH uncompensated = %v", urh)
+	rh := v.uncompHumidityToRelativeHumidity(urh)
 	return rh, nil
 }
 
 // ReadRelativeHumidityMode2 return humidity in percents
 // obtained with "No Hold Master Mode" command.
-// TODO: implement CRC generator polynomial of x 8 + x 5 + x 4 + 1 checkup
-func (v *Si7021) ReadRelativeHumidityMode2(i2c *i2c.I2C) (int, error) {
-	urh, crc, err := v.ReadUncompRelativeHumidityMode2(i2c)
+func (v *Si7021) ReadRelativeHumidityMode2(i2c *i2c.I2C) (float32, error) {
+	urh, _, err := v.ReadUncompRelativeHumidityMode2(i2c)
 	if err != nil {
 		return 0, nil
 	}
-	lg.Debugf("RH uncompensated = %v, CRC = %v", urh, crc)
-	rh := int(int64(urh)*125/65536) - 6
+	lg.Debugf("RH uncompensated = %v", urh)
+	rh := v.uncompHumidityToRelativeHumidity(urh)
 	return rh, nil
 }
 
 // ReadTemperatureCelsiusMode1 return temprature
 // obtained with "Hold Master Mode" command.
-// TODO: implement CRC generator polynomial of x 8 + x 5 + x 4 + 1 checkup
 func (v *Si7021) ReadTemperatureCelsiusMode1(i2c *i2c.I2C) (float32, error) {
-	ut, crc, err := v.ReadUncompTempratureMode1(i2c)
+	ut, _, err := v.ReadUncompTempratureMode1(i2c)
 	if err != nil {
 		return 0, nil
 	}
-	lg.Debugf("Temperature uncompensated = %v, CRC = %v", ut, crc)
-	temp := float32(math.Round((float64(ut)*175.72/65536-46.85)*math.Pow10(2))) /
-		float32(math.Pow10(2))
+	lg.Debugf("Temperature uncompensated = %v", ut)
+	temp := v.uncompTemperatureToCelsius(ut)
 	return temp, nil
 }
 
 // ReadTemperatureCelsiusMode2 return temprature
 // obtained with "No Hold Master Mode" command.
-// TODO: implement CRC generator polynomial of x 8 + x 5 + x 4 + 1 checkup
 func (v *Si7021) ReadTemperatureCelsiusMode2(i2c *i2c.I2C) (float32, error) {
-	ut, crc, err := v.ReadUncompTempratureMode2(i2c)
+	ut, _, err := v.ReadUncompTempratureMode2(i2c)
 	if err != nil {
 		return 0, nil
 	}
-	lg.Debugf("Temperature uncompensated = %v, CRC = %v", ut, crc)
-	temp := float32(math.Round((float64(ut)*175.72/65536-46.85)*math.Pow10(2))) /
-		float32(math.Pow10(2))
+	lg.Debugf("Temperature uncompensated = %v", ut)
+	temp := v.uncompTemperatureToCelsius(ut)
 	return temp, nil
 }
 
-// ReadRelativeHumidityAndTemperatureMode1 return humidity in percents
-// and temperature
+// ReadRelativeHumidityAndTemperatureMode1 return
+// humidity in percents and temperature
 // obtained with "Hold Master Mode" command.
-// TODO: implement CRC generator polynomial of x 8 + x 5 + x 4 + 1 checkup
-func (v *Si7021) ReadTemperatureAndRelativeHumidityMode1(i2c *i2c.I2C) (int, float32, error) {
+func (v *Si7021) ReadRelativeHumidityAndTemperatureMode1(i2c *i2c.I2C) (float32, float32, error) {
 	urh, ut, err := v.ReadUncompRelativeHumidityAndTempratureMode1(i2c)
 	if err != nil {
 		return 0, 0, nil
 	}
 	lg.Debugf("RH and temperature uncompensated = %v, %v", urh, ut)
-	rh := int(int64(urh)*125/65536) - 6
-	temp := float32(math.Round((float64(ut)*175.72/65536-46.85)*math.Pow10(2))) /
-		float32(math.Pow10(2))
+	rh := v.uncompHumidityToRelativeHumidity(urh)
+	temp := v.uncompTemperatureToCelsius(ut)
 	return rh, temp, nil
 }
 
-// ReadRelativeHumidityAndTemperatureMode2 return humidity in percents
-// and temperature
+// ReadRelativeHumidityAndTemperatureMode2 return
+// humidity in percents and temperature
 // obtained with "No Hold Master Mode" command.
-// TODO: implement CRC generator polynomial of x 8 + x 5 + x 4 + 1 checkup
-func (v *Si7021) ReadTemperatureAndRelativeHumidityMode2(i2c *i2c.I2C) (int, float32, error) {
+func (v *Si7021) ReadRelativeHumidityAndTemperatureMode2(i2c *i2c.I2C) (float32, float32, error) {
 	urh, ut, err := v.ReadUncompRelativeHumidityAndTempratureMode2(i2c)
 	if err != nil {
 		return 0, 0, nil
 	}
 	lg.Debugf("RH and temperature uncompensated = %v, %v", urh, ut)
-	rh := int(int64(urh)*125/65536) - 6
-	temp := float32(math.Round((float64(ut)*175.72/65536-46.85)*math.Pow10(2))) /
-		float32(math.Pow10(2))
+	rh := v.uncompHumidityToRelativeHumidity(urh)
+	temp := v.uncompTemperatureToCelsius(ut)
 	return rh, temp, nil
 }
