@@ -1,6 +1,12 @@
 package si7021
 
-import "math"
+import (
+	"bytes"
+	"encoding/binary"
+	"math"
+
+	i2c "github.com/d2r2/go-i2c"
+)
 
 // Utility functions
 
@@ -79,4 +85,20 @@ func round64(value float64, precision int) float64 {
 // Round float amount to certain procision.
 func round32(value float32, precision int) float32 {
 	return float32(round64(float64(value), precision))
+}
+
+// Read byte block from i2c device to struct object.
+func readDataToStruct(i2c *i2c.I2C, byteCount int,
+	byteOrder binary.ByteOrder, obj interface{}) error {
+	buf1 := make([]byte, byteCount)
+	_, err := i2c.ReadBytes(buf1)
+	if err != nil {
+		return err
+	}
+	buf := bytes.NewBuffer(buf1)
+	err = binary.Read(buf, byteOrder, obj)
+	if err != nil {
+		return err
+	}
+	return nil
 }

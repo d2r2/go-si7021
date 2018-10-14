@@ -28,21 +28,12 @@ func main() {
 	defer i2c.Close()
 
 	sensor := si7021.NewSi7021()
-	if err != nil {
-		log.Fatal(err)
-	}
 	
-	rh, err := sensor.ReadRelativeHumidityMode1(i2c)
+	rh, t, err := sensor.ReadRelativeHumidityAndTemperature(i2c)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Relative humidity = %v%%\n", rh)
-	
-	t, err := sensor.ReadTemperatureCelsiusMode1(i2c)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Temprature in celsius = %v*C\n", t)  
+	log.Printf("Relative humidity and temperature = %v%%, %v*C\n", rh, t)
 ```
 
 
