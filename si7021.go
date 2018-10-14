@@ -12,19 +12,19 @@ import (
 
 // Command byte's sequences
 var (
-	CMD_REL_HUM_MASTER_MODE       = []byte{0xE5}       // Measure Relative Humidity, Hold Master Mode
-	CMD_REL_HUM_NO_MASTER_MODE    = []byte{0xF5}       // Measure Relative Humidity, No Hold Master Mode
-	CMD_TEMPRATURE_MASTER_MODE    = []byte{0xE3}       // Measure Temperature, Hold Master Mode
-	CMD_TEMPRATURE_NO_MASTER_MODE = []byte{0xF3}       // Measure Temperature, No Hold Master Mode
-	CMD_TEMP_FROM_PREVIOUS        = []byte{0xE0}       // Read Temperature Value from Previous RH Measurement
-	CMD_RESET                     = []byte{0xFE}       // Reset
-	CMD_WRITE_USER_REG_1          = []byte{0xE6}       // Write RH/T User Register 1
-	CMD_READ_USER_REG_1           = []byte{0xE7}       // Read RH/T User Register 1
-	CMD_WRITE_HEATER_REG          = []byte{0x51}       // Write Heater Control Register
-	CMD_READ_HEATER_REG           = []byte{0x11}       // Read Heater Control Register
-	CMD_READ_ID_1ST_PART          = []byte{0xFA, 0x0F} // Read Electronic ID 1st Byte
-	CMD_READ_ID_2ND_PART          = []byte{0xFC, 0xC9} // Read Electronic ID 2nd Byte
-	CMD_READ_FIRMWARE_REV         = []byte{0x84, 0xB8} // Read Firmware Revision
+	CMD_REL_HUM_CSE        = []byte{0xE5}       // Measure Relative Humidity, Hold Master Mode (clock stretching enabled)
+	CMD_REL_HUM            = []byte{0xF5}       // Measure Relative Humidity, No Hold Master Mode
+	CMD_TEMPRATURE_CSE     = []byte{0xE3}       // Measure Temperature, Hold Master Mode (clock stretching enabled)
+	CMD_TEMPRATURE         = []byte{0xF3}       // Measure Temperature, No Hold Master Mode
+	CMD_TEMP_FROM_PREVIOUS = []byte{0xE0}       // Read Temperature Value from Previous RH Measurement
+	CMD_RESET              = []byte{0xFE}       // Reset
+	CMD_WRITE_USER_REG_1   = []byte{0xE6}       // Write RH/T User Register 1
+	CMD_READ_USER_REG_1    = []byte{0xE7}       // Read RH/T User Register 1
+	CMD_WRITE_HEATER_REG   = []byte{0x51}       // Write Heater Control Register
+	CMD_READ_HEATER_REG    = []byte{0x11}       // Read Heater Control Register
+	CMD_READ_ID_1ST_PART   = []byte{0xFA, 0x0F} // Read Electronic ID 1st Byte
+	CMD_READ_ID_2ND_PART   = []byte{0xFC, 0xC9} // Read Electronic ID 2nd Byte
+	CMD_READ_FIRMWARE_REV  = []byte{0x84, 0xB8} // Read Firmware Revision
 )
 
 type FirmwareVersion byte
@@ -73,105 +73,76 @@ func (v SensorType) String() string {
 	}
 }
 
-// MeasureResolution used to define measure
-// precision in bits.
-type MeasureResolution byte
+// UserRegFlag keep sensor states.
+type UserRegFlag byte
 
 const (
-	RESOLUTION_RH_12BIT_TEMP_14BIT MeasureResolution = 0x00
-	RESOLUTION_RH_8BIT_TEMP_12BIT  MeasureResolution = 0x01
-	RESOLUTION_RH_10BIT_TEMP_13BIT MeasureResolution = 0x80
-	RESOLUTION_RH_11BIT_TEMP_11BIT MeasureResolution = 0x81
-	RESOLUTION_RH_TEMP_MASK        MeasureResolution = 0x81
+	RES_RH_12BIT_TEMP_14BIT UserRegFlag = 0x00 // RH - 12bit, Temperature - 14bit
+	RES_RH_8BIT_TEMP_12BIT  UserRegFlag = 0x01 // RH - 8bit, Temperature - 12bit
+	RES_RH_10BIT_TEMP_13BIT UserRegFlag = 0x80 // RH - 10bit, Temperature - 13bit
+	RES_RH_11BIT_TEMP_11BIT UserRegFlag = 0x81 // RH - 11bit, Temperature - 11bit
+	RES_RH_TEMP_MASK        UserRegFlag = 0x81
+	HEATER_ENABLED          UserRegFlag = 0x4  // Heater activated
+	VOLTAGE_LOW             UserRegFlag = 0x40 // Voltage is lower than 1.9V
 )
 
 // String define stringer interface.
-func (v MeasureResolution) String() string {
-	switch v {
-	case RESOLUTION_RH_12BIT_TEMP_14BIT:
-		return "RH - 12bit, temperature - 14bit"
-	case RESOLUTION_RH_8BIT_TEMP_12BIT:
-		return "RH - 8bit, temperature - 12bit"
-	case RESOLUTION_RH_10BIT_TEMP_13BIT:
-		return "RH - 10bit, temperature - 13bit"
-	case RESOLUTION_RH_11BIT_TEMP_11BIT:
-		return "RH - 11bit, temperature - 11bit"
-	default:
-		return "<unknown>"
+func (v UserRegFlag) String() string {
+	const divider = " | "
+	var buf bytes.Buffer
+	if v&HEATER_ENABLED != 0 {
+		buf.WriteString("HEATER_ENABLED" + divider)
 	}
-}
-
-// HeaterStatus determine sensor internal
-// heater state: on or off.
-type HeaterStatus byte
-
-const (
-	HEATER_DISABLED    HeaterStatus = 0x0
-	HEATER_ENABLED     HeaterStatus = 0x4
-	HEATER_STATUS_MASK HeaterStatus = 0x4
-)
-
-// String define stringer interface.
-func (v HeaterStatus) String() string {
-	switch v {
-	case HEATER_ENABLED:
-		return "on"
-	case HEATER_DISABLED:
-		return "off"
-	default:
-		return "<unknown>"
+	if v&VOLTAGE_LOW != 0 {
+		buf.WriteString("VOLTAGE_LOW" + divider)
 	}
-}
-
-// VoltageStatus provided by sensor
-// to express power supply voltage level
-// - good or bad.
-type VoltageStatus byte
-
-const (
-	VOLTAGE_OK          VoltageStatus = 0x0
-	VOLTAGE_LOW         VoltageStatus = 0x40
-	VOLTAGE_STATUS_MASK VoltageStatus = 0x40
-)
-
-// String define stringer interface.
-func (v VoltageStatus) String() string {
-	switch v {
-	case VOLTAGE_OK:
-		return "OK"
-	case VOLTAGE_LOW:
-		return "low"
-	default:
-		return "<unknown>"
+	switch v & RES_RH_TEMP_MASK {
+	case RES_RH_10BIT_TEMP_13BIT:
+		buf.WriteString("RES_RH_10BIT_TEMP_13BIT" + divider)
+	case RES_RH_11BIT_TEMP_11BIT:
+		buf.WriteString("RES_RH_11BIT_TEMP_11BIT" + divider)
+	case RES_RH_12BIT_TEMP_14BIT:
+		buf.WriteString("RES_RH_12BIT_TEMP_14BIT" + divider)
+	case RES_RH_8BIT_TEMP_12BIT:
+		buf.WriteString("RES_RH_8BIT_TEMP_12BIT" + divider)
 	}
+	if buf.Len() > 0 {
+		buf.Truncate(buf.Len() - len(divider))
+	}
+	return buf.String()
 }
 
 // HeaterLevel define gradation of
 // sensor heating. Keep in mind that
 // when heater is on, the temprature
 // value provided by sensor is not correspond
-// to real ambient temprature.
+// to real ambient environment temprature.
 type HeaterLevel byte
 
 const (
-	HEATER_LEVEL_1    HeaterLevel = 0x0
-	HEATER_LEVEL_2    HeaterLevel = 0x1
-	HEATER_LEVEL_3    HeaterLevel = 0x2
+	HEATER_LEVEL_1    HeaterLevel = 0x0 // Typical power consumption: 3.09 mA
+	HEATER_LEVEL_2    HeaterLevel = 0x1 // Typical power consumption: 9.18 mA
+	HEATER_LEVEL_3    HeaterLevel = 0x2 // Typical power consumption: 15.24 mA
 	HEATER_LEVEL_4    HeaterLevel = 0x3
-	HEATER_LEVEL_5    HeaterLevel = 0x4
+	HEATER_LEVEL_5    HeaterLevel = 0x4 // Typical power consumption: 27.39 mA
 	HEATER_LEVEL_6    HeaterLevel = 0x5
 	HEATER_LEVEL_7    HeaterLevel = 0x6
 	HEATER_LEVEL_8    HeaterLevel = 0x7
-	HEATER_LEVEL_9    HeaterLevel = 0x8
+	HEATER_LEVEL_9    HeaterLevel = 0x8 // Typical power consumption: 51.69 mA
 	HEATER_LEVEL_10   HeaterLevel = 0x9
 	HEATER_LEVEL_11   HeaterLevel = 0xA
 	HEATER_LEVEL_12   HeaterLevel = 0xB
 	HEATER_LEVEL_13   HeaterLevel = 0xC
 	HEATER_LEVEL_14   HeaterLevel = 0xD
 	HEATER_LEVEL_15   HeaterLevel = 0xE
-	HEATER_LEVEL_16   HeaterLevel = 0xF
+	HEATER_LEVEL_16   HeaterLevel = 0xF // Typical power consumption: 94.2 mA
 	HEATER_LEVEL_MASK HeaterLevel = 0xF
 )
+
+// String define stringer interface.
+func (v HeaterLevel) String() string {
+	return spew.Sprintf("HEATER_LEVEL_%d", v+1)
+}
 
 type Si7021 struct {
 	lastUserReg *byte
@@ -315,59 +286,64 @@ func (v *Si7021) readUserReg(i2c *i2c.I2C) (byte, error) {
 
 // SetMeasureResolution set up sensor
 // temprature and humidity measure accuracy.
-func (v *Si7021) SetMeasureResolution(i2c *i2c.I2C, res MeasureResolution) error {
+func (v *Si7021) SetMeasureResolution(i2c *i2c.I2C, res UserRegFlag) error {
 	lg.Debug("Setting measure resolution...")
 	ur, err := v.readUserReg(i2c)
 	if err != nil {
 		return err
 	}
-	ur = ur&(^byte(RESOLUTION_RH_TEMP_MASK)) | (byte)(res)
+	ur = ur&(^byte(RES_RH_TEMP_MASK)) | (byte)(res)
 	v.lastUserReg = &ur
 	_, err = i2c.WriteBytes(append(CMD_WRITE_USER_REG_1, ur))
 	return err
 }
 
 // GetMeasureResolution read current sensor measure accuracy.
-func (v *Si7021) GetMeasureResolution(i2c *i2c.I2C) (MeasureResolution, error) {
+func (v *Si7021) GetMeasureResolution(i2c *i2c.I2C) (UserRegFlag, error) {
 	v.lastUserReg = nil
 	ur, err := v.readUserReg(i2c)
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
-	return (MeasureResolution)(ur) & RESOLUTION_RH_TEMP_MASK, nil
+	return (UserRegFlag)(ur) & RES_RH_TEMP_MASK, nil
 }
 
 // SetHeaterStatus enable of disable internal heater.
-func (v *Si7021) SetHeaterStatus(i2c *i2c.I2C, heat HeaterStatus) error {
+func (v *Si7021) SetHeaterStatus(i2c *i2c.I2C, enableHeater bool) error {
 	lg.Debug("Setting heater on/off...")
 	ur, err := v.readUserReg(i2c)
 	if err != nil {
 		return err
 	}
-	ur = ur&(^byte(HEATER_STATUS_MASK)) | (byte)(heat)
+	ur = ur & (^byte(HEATER_ENABLED))
+	if enableHeater {
+		ur = ur | byte(HEATER_ENABLED)
+	}
 	v.lastUserReg = &ur
 	_, err = i2c.WriteBytes(append(CMD_WRITE_USER_REG_1, ur))
 	return err
 }
 
-// GetHeaterStatus return internal heater status: on or off.
-func (v *Si7021) GetHeaterStatus(i2c *i2c.I2C) (HeaterStatus, error) {
+// GetHeaterStatus return heater status: on (true) or off (false).
+func (v *Si7021) GetHeaterStatus(i2c *i2c.I2C) (bool, error) {
+	lg.Debug("Getting heater status...")
 	v.lastUserReg = nil
 	ur, err := v.readUserReg(i2c)
 	if err != nil {
-		return 0, nil
+		return false, err
 	}
-	return (HeaterStatus)(ur) & HEATER_STATUS_MASK, nil
+	return (UserRegFlag)(ur)&HEATER_ENABLED != 0, nil
 }
 
-// GetVoltageStatus provide power suply voltage level: good or bad.
-func (v *Si7021) GetVoltageStatus(i2c *i2c.I2C) (VoltageStatus, error) {
+// GetVoltageStatus provide power supply voltage low: low (true) or OK (false).
+func (v *Si7021) GetVoltageLow(i2c *i2c.I2C) (bool, error) {
+	lg.Debug("Getting voltage low status...")
 	v.lastUserReg = nil
 	ur, err := v.readUserReg(i2c)
 	if err != nil {
-		return 0, nil
+		return false, err
 	}
-	return (VoltageStatus)(ur) & VOLTAGE_STATUS_MASK, nil
+	return (UserRegFlag)(ur)&VOLTAGE_LOW != 0, nil
 }
 
 // SetHeaterLevel define internal heater
@@ -384,6 +360,7 @@ func (v *Si7021) SetHeaterLevel(i2c *i2c.I2C, level HeaterLevel) error {
 
 // GetHeaterLevel return sensor heating gradation.
 func (v *Si7021) GetHeaterLevel(i2c *i2c.I2C) (HeaterLevel, error) {
+	lg.Debug("Getting heater level...")
 	_, err := i2c.WriteBytes(CMD_READ_HEATER_REG)
 	if err != nil {
 		return 0, err
@@ -399,7 +376,7 @@ func (v *Si7021) GetHeaterLevel(i2c *i2c.I2C) (HeaterLevel, error) {
 // Reset reboot a sensor.
 func (v *Si7021) Reset(i2c *i2c.I2C) error {
 	lg.Debug("Reset sensor...")
-	_, err := i2c.WriteBytes([]byte{0xFE})
+	_, err := i2c.WriteBytes(CMD_RESET)
 	if err != nil {
 		return err
 	}
@@ -413,71 +390,54 @@ func (v *Si7021) doMeasure(i2c *i2c.I2C, cmd []byte, withCRC bool) (uint16, byte
 	if err != nil {
 		return 0, 0, err
 	}
-	const dataBytesCount = 2
-	const crcBytesCount = 1
 	// Wait according to conversion time specification
 	time.Sleep(time.Millisecond * (12 + 11))
-	var buf []byte
+
+	const dataBytesCount = 2
+	const crcBytesCount = 1
 	if withCRC {
-		buf = make([]byte, dataBytesCount+crcBytesCount)
-	} else {
-		buf = make([]byte, dataBytesCount)
-	}
-	_, err = i2c.ReadBytes(buf)
-	if err != nil {
-		return 0, 0, err
-	}
-	var crc byte
-	if withCRC {
-		crc = buf[dataBytesCount]
-		calcCrc := calcCRC_SI7021(0x0, buf[0:dataBytesCount])
-		if crc != calcCrc {
+		var data struct {
+			Data [2]byte
+			CRC  byte
+		}
+		err := readDataToStruct(i2c, dataBytesCount+crcBytesCount, binary.BigEndian, &data)
+		if err != nil {
+			return 0, 0, err
+		}
+		calcCRC := calcCRC_SI7021(0x0, data.Data[:dataBytesCount])
+		if data.CRC != calcCRC {
 			err := errors.New(spew.Sprintf(
-				"CRCs doesn't match: CRC from sensor(%v) != calculated CRC(%v)",
-				crc, calcCrc))
+				"CRCs doesn't match: CRC from sensor (0x%0X) != calculated CRC (0x%0X)",
+				data.CRC, calcCRC))
 			return 0, 0, err
 		} else {
-			lg.Debugf("CRCs verified: CRC from sensor(%v) = calculated CRC(%v)",
-				crc, calcCrc)
+			lg.Debugf("CRCs verified: CRC from sensor (0x%0X) = calculated CRC (0x%0X)",
+				data.CRC, calcCRC)
 		}
+		return getU16BE(data.Data[:dataBytesCount]), data.CRC, nil
+	} else {
+		var data struct {
+			Data [2]byte
+		}
+		err := readDataToStruct(i2c, dataBytesCount, binary.BigEndian, &data)
+		if err != nil {
+			return 0, 0, err
+		}
+		return getU16BE(data.Data[:dataBytesCount]), 0, nil
 	}
-	meas := getU16BE(buf[0:dataBytesCount])
-	return meas, crc, nil
 }
 
-// ReadUncompRelativeHumidityMode1 returns
-// uncompensated humidity and CRC
-// obtained with "Hold Master Mode" command.
-func (v *Si7021) ReadUncompRelativeHumidityMode1(i2c *i2c.I2C) (uint16, byte, error) {
-	lg.Debug("Reading humidity (mode 1)...")
-	rh, crc, err := v.doMeasure(i2c, CMD_REL_HUM_MASTER_MODE, true)
+// ReadUncompHumidity returns uncompensated humidity and CRC.
+func (v *Si7021) ReadUncompHumidity(i2c *i2c.I2C) (uint16, byte, error) {
+	lg.Debug("Reading uncompensated humidity...")
+	rh, crc, err := v.doMeasure(i2c, CMD_REL_HUM, true)
 	return rh, crc, err
 }
 
-// ReadUncompRelativeHumidityMode2 returns
-// uncompensated humidity and CRC
-// obtained with "No Hold Master Mode" command.
-func (v *Si7021) ReadUncompRelativeHumidityMode2(i2c *i2c.I2C) (uint16, byte, error) {
-	lg.Debug("Reading humidity (mode 2)...")
-	rh, crc, err := v.doMeasure(i2c, CMD_REL_HUM_NO_MASTER_MODE, true)
-	return rh, crc, err
-}
-
-// ReadUncompTemperatureMode1 returns
-// uncompensated temperature and CRC
-// obtained with "Hold Master Mode" command.
-func (v *Si7021) ReadUncompTempratureMode1(i2c *i2c.I2C) (uint16, byte, error) {
-	lg.Debug("Reading temprature (mode 1)...")
-	temp, crc, err := v.doMeasure(i2c, CMD_TEMPRATURE_MASTER_MODE, true)
-	return temp, crc, err
-}
-
-// ReadUncompTemperatureMode2 returns
-// uncompensated termperature and CRC
-// obtained with "No Hold Master Mode" command.
-func (v *Si7021) ReadUncompTempratureMode2(i2c *i2c.I2C) (uint16, byte, error) {
-	lg.Debug("Reading temprature (mode 2)...")
-	temp, crc, err := v.doMeasure(i2c, CMD_TEMPRATURE_NO_MASTER_MODE, true)
+// ReadUncompTemperature returns uncompensated temperature and CRC.
+func (v *Si7021) ReadUncompTemprature(i2c *i2c.I2C) (uint16, byte, error) {
+	lg.Debug("Reading uncompensated temprature...")
+	temp, crc, err := v.doMeasure(i2c, CMD_TEMPRATURE, true)
 	return temp, crc, err
 }
 
@@ -493,11 +453,11 @@ func (v *Si7021) uncompTemperatureToCelsius(ut uint16) float32 {
 	return temp2
 }
 
-// ReadUncompRelativeHumidityAndTemperatureMode1 returns
-// uncompensated humidity/temperature and CRC
-// obtained with "Hold Master Mode" command.
-func (v *Si7021) ReadUncompRelativeHumidityAndTempratureMode1(i2c *i2c.I2C) (uint16, uint16, error) {
-	rh, _, err := v.doMeasure(i2c, CMD_REL_HUM_MASTER_MODE, true)
+// ReadUncompHumidityAndTemperature returns
+// uncompensated humidity, temperature and CRC.
+func (v *Si7021) ReadUncompHumidityAndTemprature(i2c *i2c.I2C) (uint16, uint16, error) {
+	lg.Debug("Reading uncompensated humidity and temperature...")
+	rh, _, err := v.doMeasure(i2c, CMD_REL_HUM, true)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -508,92 +468,33 @@ func (v *Si7021) ReadUncompRelativeHumidityAndTempratureMode1(i2c *i2c.I2C) (uin
 	return rh, temp, nil
 }
 
-// ReadUncompRelativeHumidityAndTemperatureMode2 returns
-// uncompensated humidity/termperature and CRC
-// obtained with "No Hold Master Mode" command.
-func (v *Si7021) ReadUncompRelativeHumidityAndTempratureMode2(i2c *i2c.I2C) (uint16, uint16, error) {
-	rh, _, err := v.doMeasure(i2c, CMD_REL_HUM_NO_MASTER_MODE, true)
+// ReadRelativeHumidity return relative humidity.
+func (v *Si7021) ReadRelativeHumidity(i2c *i2c.I2C) (float32, error) {
+	urh, _, err := v.ReadUncompHumidity(i2c)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
-	temp, _, err := v.doMeasure(i2c, CMD_TEMP_FROM_PREVIOUS, false)
-	if err != nil {
-		return 0, 0, err
-	}
-	return rh, temp, nil
-}
-
-// ReadRelativeHumidityMode1 return humidity in percents
-// obtained with "Hold Master Mode" command.
-func (v *Si7021) ReadRelativeHumidityMode1(i2c *i2c.I2C) (float32, error) {
-	urh, _, err := v.ReadUncompRelativeHumidityMode1(i2c)
-	if err != nil {
-		return 0, nil
-	}
-	lg.Debugf("RH uncompensated = %v", urh)
 	rh := v.uncompHumidityToRelativeHumidity(urh)
 	return rh, nil
 }
 
-// ReadRelativeHumidityMode2 return humidity in percents
-// obtained with "No Hold Master Mode" command.
-func (v *Si7021) ReadRelativeHumidityMode2(i2c *i2c.I2C) (float32, error) {
-	urh, _, err := v.ReadUncompRelativeHumidityMode2(i2c)
+// ReadTemperature return temprature.
+func (v *Si7021) ReadTemperature(i2c *i2c.I2C) (float32, error) {
+	ut, _, err := v.ReadUncompTemprature(i2c)
 	if err != nil {
-		return 0, nil
+		return 0, err
 	}
-	lg.Debugf("RH uncompensated = %v", urh)
-	rh := v.uncompHumidityToRelativeHumidity(urh)
-	return rh, nil
-}
-
-// ReadTemperatureCelsiusMode1 return temprature
-// obtained with "Hold Master Mode" command.
-func (v *Si7021) ReadTemperatureCelsiusMode1(i2c *i2c.I2C) (float32, error) {
-	ut, _, err := v.ReadUncompTempratureMode1(i2c)
-	if err != nil {
-		return 0, nil
-	}
-	lg.Debugf("Temperature uncompensated = %v", ut)
 	temp := v.uncompTemperatureToCelsius(ut)
 	return temp, nil
 }
 
-// ReadTemperatureCelsiusMode2 return temprature
-// obtained with "No Hold Master Mode" command.
-func (v *Si7021) ReadTemperatureCelsiusMode2(i2c *i2c.I2C) (float32, error) {
-	ut, _, err := v.ReadUncompTempratureMode2(i2c)
+// ReadRelativeHumidityAndTemperature return
+// relative humidity and temperature.
+func (v *Si7021) ReadRelativeHumidityAndTemperature(i2c *i2c.I2C) (float32, float32, error) {
+	urh, ut, err := v.ReadUncompHumidityAndTemprature(i2c)
 	if err != nil {
-		return 0, nil
+		return 0, 0, err
 	}
-	lg.Debugf("Temperature uncompensated = %v", ut)
-	temp := v.uncompTemperatureToCelsius(ut)
-	return temp, nil
-}
-
-// ReadRelativeHumidityAndTemperatureMode1 return
-// humidity in percents and temperature
-// obtained with "Hold Master Mode" command.
-func (v *Si7021) ReadRelativeHumidityAndTemperatureMode1(i2c *i2c.I2C) (float32, float32, error) {
-	urh, ut, err := v.ReadUncompRelativeHumidityAndTempratureMode1(i2c)
-	if err != nil {
-		return 0, 0, nil
-	}
-	lg.Debugf("RH and temperature uncompensated = %v, %v", urh, ut)
-	rh := v.uncompHumidityToRelativeHumidity(urh)
-	temp := v.uncompTemperatureToCelsius(ut)
-	return rh, temp, nil
-}
-
-// ReadRelativeHumidityAndTemperatureMode2 return
-// humidity in percents and temperature
-// obtained with "No Hold Master Mode" command.
-func (v *Si7021) ReadRelativeHumidityAndTemperatureMode2(i2c *i2c.I2C) (float32, float32, error) {
-	urh, ut, err := v.ReadUncompRelativeHumidityAndTempratureMode2(i2c)
-	if err != nil {
-		return 0, 0, nil
-	}
-	lg.Debugf("RH and temperature uncompensated = %v, %v", urh, ut)
 	rh := v.uncompHumidityToRelativeHumidity(urh)
 	temp := v.uncompTemperatureToCelsius(ut)
 	return rh, temp, nil
