@@ -9,9 +9,9 @@ Silicon Labs Si7021 relative humidity and temperature sensor
 Si7021 ([pdf reference](https://raw.github.com/d2r2/go-si7021/master/docs/Si7021-A20.pdf)) high accuracy temperature and relative humidity sensor. Easily integrated with Arduino and Raspberry PI due to i2c communication interface:
 ![image](https://raw.github.com/d2r2/go-si7021/master/docs/Si7021_GY-21.jpg)
 
-This sensor has extra feature - integrated heater which could be helpfull in some specific application (such as periodic condensate removal, for example).
+This sensor has extra feature - integrated heater which could be helpful in some specific application (such as periodic condensate removal, for example).
 
-Here is a library written in [Go programming language](https://golang.org/) for Raspberry PI and counterparts, which gives you in the output relative humidity and temperature values (making all necessary i2c-bus interracting and values computing).
+Here is a library written in [Go programming language](https://golang.org/) for Raspberry PI and counterparts, which gives you in the output relative humidity and temperature values (making all necessary i2c-bus interacting and values computing).
 
 Golang usage
 ------------
@@ -49,17 +49,17 @@ Installation
 $ go get -u github.com/d2r2/go-si7021
 ```
 
-Troubleshoting
+Troubleshooting
 --------------
 
 - *How to obtain fresh Golang installation to RPi device (either any RPi clone):*
 If your RaspberryPI golang installation taken by default from repository is outdated, you may consider
-to install actual golang mannualy from official Golang [site](https://golang.org/dl/). Download
+to install actual golang manually from official Golang [site](https://golang.org/dl/). Download
 tar.gz file containing armv6l in the name. Follow installation instructions.
 
 - *How to enable I2C bus on RPi device:*
 If you employ RaspberryPI, use raspi-config utility to activate i2c-bus on the OS level.
-Go to "Interfaceing Options" menu, to active I2C bus.
+Go to "Interfacing Options" menu, to active I2C bus.
 Probably you will need to reboot to load i2c kernel module.
 Finally you should have device like /dev/i2c-1 present in the system.
 
